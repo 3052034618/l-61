@@ -62,6 +62,25 @@ def get_store_sales(
     return loss_service.get_store_sales_records(db, store_id, region, start_date, end_date, skip, limit)
 
 
+@router.post("/sales/batch", response_model=schemas.StoreSalesBatchResult, summary="批量补录门店销售额")
+def batch_create_store_sales(
+    items: List[schemas.StoreSalesBatchItem],
+    db: Session = Depends(get_db)
+):
+    return loss_service.batch_create_store_sales(db, items)
+
+
+@router.get("/dashboard", response_model=schemas.DashboardSummary, summary="运营看板汇总")
+def get_dashboard_summary(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    region: Optional[str] = None,
+    store_id: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
+    return loss_service.get_dashboard_summary(db, start_date, end_date, region, store_id)
+
+
 @router.get("/stores", response_model=List[schemas.Store], summary="查询门店列表")
 def get_stores(
     region: Optional[str] = None,

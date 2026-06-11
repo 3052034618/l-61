@@ -47,11 +47,12 @@ def get_all_stores_loss_rate(
 @router.get("/high-frequency", response_model=List[schemas.HighFreqProduct], summary="识别高频报损商品")
 def get_high_frequency_products(
     store_id: Optional[int] = None,
+    region: Optional[str] = None,
     days: int = Query(30, ge=1, le=365),
     min_count: int = Query(3, ge=1),
     db: Session = Depends(get_db)
 ):
-    return loss_service.identify_high_frequency_products(db, store_id, days, min_count)
+    return loss_service.identify_high_frequency_products(db, store_id, region, days, min_count)
 
 
 @router.get("/risk-score/{product_id}", response_model=schemas.ProductRiskScore, summary="商品损耗评分")

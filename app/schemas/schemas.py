@@ -255,8 +255,13 @@ class ProductRiskScore(BaseModel):
     risk_level: str
     loss_rate: float
     report_count: int
+    approved_report_count: int
+    pending_report_count: int
+    approved_loss_amount: float
+    pending_loss_amount: float
     last_report_time: Optional[datetime] = None
     main_reasons: List[str]
+    data_note: str
 
 
 class ExpiryReminder(BaseModel):
@@ -297,14 +302,19 @@ class StoreComparison(BaseModel):
     region: str
     loss_amount: float
     loss_quantity: float
+    approved_loss_amount: float
+    pending_loss_amount: float
     total_sales: Optional[float] = None
     loss_rate: Optional[float] = None
     report_count: int
+    approved_report_count: int
+    pending_report_count: int
     high_freq_count: int
     ranking: int
     trend: str
     has_sales_data: bool
     note: Optional[str] = None
+    data_note: Optional[str] = None
 
 
 class LossCategoryStat(BaseModel):
@@ -313,9 +323,16 @@ class LossCategoryStat(BaseModel):
     reason_name: str
     category: str
     report_count: int
+    approved_report_count: int
+    pending_report_count: int
     total_quantity: float
+    approved_quantity: float
+    pending_quantity: float
     total_amount: float
+    approved_amount: float
+    pending_amount: float
     percentage: float
+    data_note: Optional[str] = None
 
 
 class HighFreqProduct(BaseModel):
@@ -324,21 +341,33 @@ class HighFreqProduct(BaseModel):
     sku: str
     category: str
     report_count: int
+    approved_report_count: int
+    pending_report_count: int
     total_quantity: float
+    approved_quantity: float
+    pending_quantity: float
     total_amount: float
+    approved_amount: float
+    pending_amount: float
     avg_monthly_count: float
     risk_level: str
+    data_note: Optional[str] = None
 
 
 class TrendDataPoint(BaseModel):
     date: date
     loss_amount: float
     loss_quantity: float
+    approved_loss_amount: float
+    pending_loss_amount: float
     loss_rate: Optional[float] = None
     report_count: int
+    approved_report_count: int
+    pending_report_count: int
     total_sales: Optional[float] = None
     has_sales_data: bool
     note: Optional[str] = None
+    data_note: Optional[str] = None
 
 
 class WeeklyReportSummary(BaseModel):
@@ -390,12 +419,17 @@ class StoreLossRate(BaseModel):
     end_date: date
     total_sales: Optional[float] = None
     total_loss_amount: float
+    approved_loss_amount: float
+    pending_loss_amount: float
     loss_rate: Optional[float] = None
     loss_rate_trend: Optional[float] = None
     threshold: float
     is_exceeded: Optional[bool] = None
     has_sales_data: bool
+    approved_report_count: int
+    pending_report_count: int
     note: Optional[str] = None
+    data_note: Optional[str] = None
 
 
 class StoreSalesBase(BaseModel):
@@ -482,3 +516,62 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     username: Optional[str] = None
+
+
+class StoreSalesBatchItem(BaseModel):
+    store_id: int
+    sales_date: date
+    sales_amount: float
+    transaction_count: Optional[int] = 0
+    customer_count: Optional[int] = 0
+    remark: Optional[str] = None
+    created_by: Optional[str] = None
+
+
+class StoreSalesBatchResult(BaseModel):
+    total_items: int
+    success_count: int
+    inserted_count: int
+    updated_count: int
+    failed_count: int
+    inserted: List[Dict[str, Any]]
+    updated: List[Dict[str, Any]]
+    failed: List[Dict[str, Any]]
+
+
+class DashboardRankingItem(BaseModel):
+    region: str
+    avg_loss_rate: Optional[float] = None
+    total_loss_amount: float
+    store_count: int
+    ranking: int
+
+
+class DashboardSummary(BaseModel):
+    period_start: date
+    period_end: date
+    region: Optional[str] = None
+    store_id: Optional[int] = None
+    store_name: Optional[str] = None
+    total_sales: Optional[float] = None
+    total_loss_amount: float
+    approved_loss_amount: float
+    pending_loss_amount: float
+    loss_rate: Optional[float] = None
+    prev_total_sales: Optional[float] = None
+    prev_total_loss_amount: Optional[float] = None
+    prev_loss_rate: Optional[float] = None
+    sales_wow_change: Optional[float] = None
+    loss_wow_change: Optional[float] = None
+    loss_rate_wow_change: Optional[float] = None
+    total_warnings: int
+    critical_warnings: int
+    high_warnings: int
+    medium_warnings: int
+    low_warnings: int
+    unhandled_warnings: int
+    approved_report_count: int
+    pending_report_count: int
+    regional_ranking: Optional[List[DashboardRankingItem]] = None
+    has_sales_data: bool
+    data_note: Optional[str] = None

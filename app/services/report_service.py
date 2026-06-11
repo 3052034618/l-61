@@ -124,7 +124,7 @@ def generate_weekly_summary(
         })
 
     high_freq = identify_high_frequency_products(
-        db, store_id=store_id, days=7, min_count=1
+        db, store_id=store_id, region=region, days=7, min_count=1
     )
 
     top_products = []
