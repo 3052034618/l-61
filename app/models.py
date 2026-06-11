@@ -24,6 +24,7 @@ class Store(Base):
     loss_reports = relationship("LossReport", back_populates="store")
     inventory_checks = relationship("InventoryCheck", back_populates="store")
     alerts = relationship("WarningAlert", back_populates="store")
+    sales_records = relationship("StoreSales", back_populates="store")
 
 
 class Product(Base):
@@ -227,11 +228,22 @@ class WeeklyReport(Base):
     week_end = Column(Date)
     total_loss_amount = Column(Float, default=0.0)
     total_loss_quantity = Column(Float, default=0.0)
-    loss_rate = Column(Float, default=0.0)
+    total_sales_amount = Column(Float)
+    loss_rate = Column(Float)
+    prev_total_loss_amount = Column(Float)
+    prev_total_sales_amount = Column(Float)
+    prev_loss_rate = Column(Float)
+    week_over_week_change = Column(Float)
+    loss_amount_change = Column(Float)
+    has_sales_data = Column(Boolean, default=False)
     high_freq_products = Column(Text)
     main_reasons = Column(Text)
+    regional_ranking = Column(Text)
+    regional_ranking_change = Column(Text)
+    correction_items = Column(Text)
     summary = Column(Text)
     suggestions = Column(Text)
+    note = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -246,3 +258,22 @@ class User(Base):
     store_id = Column(Integer)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class StoreSales(Base):
+    __tablename__ = "store_sales"
+
+    id = Column(Integer, primary_key=True, index=True)
+    store_id = Column(Integer, ForeignKey("stores.id"), nullable=False, index=True)
+    sales_date = Column(Date, nullable=False, index=True)
+    sales_amount = Column(Float, nullable=False, default=0.0)
+    transaction_count = Column(Integer, default=0)
+    customer_count = Column(Integer, default=0)
+    remark = Column(String(255))
+    created_by = Column(String(50))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    store = relationship("Store", back_populates="sales_records")
+
+    __table_args__ = ()

@@ -253,6 +253,47 @@ def init_database():
                 )
                 db.add(check)
         
+        if db.query(models.StoreSales).count() == 0:
+            print("创建示例销售额数据...")
+            today = date.today()
+            stores = db.query(models.Store).all()
+
+            for store in stores:
+                base_daily_sales = {
+                    "华北区": 28000,
+                    "华东区": 35000,
+                    "华南区": 32000
+                }.get(store.region, 25000)
+
+                for days_ago in range(90):
+                    sales_date = today - timedelta(days=days_ago)
+                    weekday_factor = 1.0
+                    if sales_date.weekday() >= 5:
+                        weekday_factor = 1.25
+
+                    season_factor = 1.0
+                    if sales_date.month in [1, 2, 7, 8, 12]:
+                        season_factor = 1.15
+
+                    daily_sales = round(
+                        base_daily_sales * weekday_factor * season_factor * random.uniform(0.85, 1.15),
+                        2
+                    )
+                    transactions = int(daily_sales / random.uniform(45, 75))
+                    customers = int(transactions * random.uniform(1.1, 1.5))
+
+                    sales_record = models.StoreSales(
+                        store_id=store.id,
+                        sales_date=sales_date,
+                        sales_amount=daily_sales,
+                        transaction_count=transactions,
+                        customer_count=customers,
+                        remark=f"示例数据-{sales_date.isoformat()}",
+                        created_by="system"
+                    )
+                    db.add(sales_record)
+            db.flush()
+
         if db.query(models.WarningAlert).count() == 0:
             print("创建示例预警记录...")
             from app.services.warning_service import run_all_alert_checks

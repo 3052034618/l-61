@@ -6,6 +6,7 @@ from datetime import date, timedelta
 from app.database import get_db
 from app.schemas import schemas
 from app.services import loss_service, crud
+from app import models
 
 router = APIRouter(prefix="/loss", tags=["损耗管理"])
 
@@ -108,14 +109,15 @@ def get_trend_data(
 def get_regional_ranking(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
+    region: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     if not start_date:
         start_date = date.today() - timedelta(days=30)
     if not end_date:
         end_date = date.today()
-    
-    return loss_service.get_regional_ranking(db, start_date, end_date)
+
+    return loss_service.get_regional_ranking(db, start_date, end_date, region_filter=region)
 
 
 @router.get("/store-comparison", response_model=List[schemas.StoreComparison], summary="门店对比")
@@ -148,7 +150,10 @@ def create_loss_report(
     report_in: schemas.LossReportCreate,
     db: Session = Depends(get_db)
 ):
-    return crud.loss_report.create(db, obj_in=report_in)
+    try:
+        return crud.loss_report.create(db, obj_in=report_in)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/reports", response_model=List[schemas.LossReport], summary="查询报损记录")
@@ -186,6 +191,3 @@ def review_loss_report(
         raise HTTPException(status_code=404, detail="报损记录不存在")
     
     return crud.loss_report.review(db, db_obj=report, obj_in=review_in)
-
-
-from app import models

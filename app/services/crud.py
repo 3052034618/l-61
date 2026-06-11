@@ -66,15 +66,25 @@ class CRUDLossReport(CRUDBase[models.LossReport, schemas.LossReportCreate, schem
         return f"LOSS{datetime.utcnow().strftime('%Y%m%d%H%M%S')}{uuid.uuid4().hex[:4].upper()}"
 
     def create(self, db: Session, *, obj_in: schemas.LossReportCreate) -> models.LossReport:
+        store = db.query(models.Store).filter(models.Store.id == obj_in.store_id).first()
+        if not store:
+            raise ValueError(f"门店ID {obj_in.store_id} 不存在")
+
+        product = db.query(models.Product).filter(models.Product.id == obj_in.product_id).first()
+        if not product:
+            raise ValueError(f"商品ID {obj_in.product_id} 不存在")
+
+        reason = db.query(models.LossReason).filter(models.LossReason.id == obj_in.reason_id).first()
+        if not reason:
+            raise ValueError(f"损耗原因ID {obj_in.reason_id} 不存在")
+
         obj_in_data = obj_in.model_dump()
-        
+
         if obj_in_data.get("amount") in [0, None] and obj_in_data.get("quantity"):
-            product = db.query(models.Product).filter(models.Product.id == obj_in.product_id).first()
-            if product:
-                obj_in_data["amount"] = obj_in.quantity * product.cost_price
-        
+            obj_in_data["amount"] = obj_in.quantity * product.cost_price
+
         obj_in_data["report_no"] = self.generate_report_no()
-        
+
         product_id = obj_in.product_id
         store_id = obj_in.store_id
         thirty_days_ago = datetime.utcnow() - timedelta(days=30)
@@ -84,7 +94,7 @@ class CRUDLossReport(CRUDBase[models.LossReport, schemas.LossReportCreate, schem
             models.LossReport.report_time >= thirty_days_ago
         ).scalar() or 0
         obj_in_data["is_high_frequency"] = recent_count >= 3
-        
+
         db_obj = self.model(**obj_in_data)
         db.add(db_obj)
         db.commit()
@@ -108,25 +118,32 @@ class CRUDInventoryCheck(CRUDBase[models.InventoryCheck, schemas.InventoryCheckC
         return f"CHK{datetime.utcnow().strftime('%Y%m%d%H%M%S')}{uuid.uuid4().hex[:4].upper()}"
 
     def create(self, db: Session, *, obj_in: schemas.InventoryCheckCreate) -> models.InventoryCheck:
+        store = db.query(models.Store).filter(models.Store.id == obj_in.store_id).first()
+        if not store:
+            raise ValueError(f"门店ID {obj_in.store_id} 不存在")
+
+        product = db.query(models.Product).filter(models.Product.id == obj_in.product_id).first()
+        if not product:
+            raise ValueError(f"商品ID {obj_in.product_id} 不存在")
+
         obj_in_data = obj_in.model_dump()
-        
+
         shortage_qty = obj_in.system_quantity - obj_in.actual_quantity
         obj_in_data["shortage_quantity"] = max(0, shortage_qty)
-        
-        product = db.query(models.Product).filter(models.Product.id == obj_in.product_id).first()
-        cost_price = product.cost_price if product else 0.0
+
+        cost_price = product.cost_price
         obj_in_data["shortage_amount"] = obj_in_data["shortage_quantity"] * cost_price
-        
+
         if obj_in.system_quantity > 0:
             obj_in_data["shortage_rate"] = (obj_in_data["shortage_quantity"] / obj_in.system_quantity) * 100
         else:
             obj_in_data["shortage_rate"] = 0.0
-        
+
         threshold = get_threshold_value(db, "shortage_rate_threshold", 2.0)
         obj_in_data["is_abnormal"] = obj_in_data["shortage_rate"] > threshold
-        
+
         obj_in_data["check_no"] = self.generate_check_no()
-        
+
         db_obj = self.model(**obj_in_data)
         db.add(db_obj)
         db.commit()

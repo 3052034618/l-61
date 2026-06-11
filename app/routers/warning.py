@@ -44,7 +44,10 @@ def create_inventory_check(
     check_in: schemas.InventoryCheckCreate,
     db: Session = Depends(get_db)
 ):
-    return crud.inventory_check.create(db, obj_in=check_in)
+    try:
+        return crud.inventory_check.create(db, obj_in=check_in)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/alerts", response_model=List[schemas.WarningAlert], summary="查询预警列表")

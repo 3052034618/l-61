@@ -297,11 +297,14 @@ class StoreComparison(BaseModel):
     region: str
     loss_amount: float
     loss_quantity: float
-    loss_rate: float
+    total_sales: Optional[float] = None
+    loss_rate: Optional[float] = None
     report_count: int
     high_freq_count: int
     ranking: int
     trend: str
+    has_sales_data: bool
+    note: Optional[str] = None
 
 
 class LossCategoryStat(BaseModel):
@@ -331,18 +334,11 @@ class TrendDataPoint(BaseModel):
     date: date
     loss_amount: float
     loss_quantity: float
-    loss_rate: float
+    loss_rate: Optional[float] = None
     report_count: int
-
-
-class RegionalRanking(BaseModel):
-    region: str
-    store_count: int
-    total_loss_amount: float
-    avg_loss_rate: float
-    best_store: str
-    worst_store: str
-    ranking: int
+    total_sales: Optional[float] = None
+    has_sales_data: bool
+    note: Optional[str] = None
 
 
 class WeeklyReportSummary(BaseModel):
@@ -353,12 +349,22 @@ class WeeklyReportSummary(BaseModel):
     week_end: date
     total_loss_amount: float
     total_loss_quantity: float
-    loss_rate: float
-    week_over_week_change: float
+    total_sales_amount: Optional[float] = None
+    loss_rate: Optional[float] = None
+    prev_total_loss_amount: Optional[float] = None
+    prev_total_sales_amount: Optional[float] = None
+    prev_loss_rate: Optional[float] = None
+    week_over_week_change: Optional[float] = None
+    loss_amount_change: Optional[float] = None
+    has_sales_data: bool
     main_reasons: List[Dict[str, Any]]
     top_products: List[Dict[str, Any]]
+    regional_ranking: Optional[List[Dict[str, Any]]] = None
+    regional_ranking_change: Optional[List[Dict[str, Any]]] = None
     summary: str
     suggestions: List[str]
+    correction_items: Optional[List[Dict[str, Any]]] = None
+    note: Optional[str] = None
 
 
 class CorrectionItem(BaseModel):
@@ -382,17 +388,67 @@ class StoreLossRate(BaseModel):
     period: str
     start_date: date
     end_date: date
-    total_sales: float
+    total_sales: Optional[float] = None
     total_loss_amount: float
-    loss_rate: float
-    loss_rate_trend: float
+    loss_rate: Optional[float] = None
+    loss_rate_trend: Optional[float] = None
     threshold: float
-    is_exceeded: bool
+    is_exceeded: Optional[bool] = None
+    has_sales_data: bool
+    note: Optional[str] = None
 
 
-class Token(BaseModel):
-    access_token: str
-    token_type: str
+class StoreSalesBase(BaseModel):
+    store_id: int
+    sales_date: date
+    sales_amount: float
+    transaction_count: Optional[int] = 0
+    customer_count: Optional[int] = 0
+    remark: Optional[str] = None
+    created_by: Optional[str] = None
+
+
+class StoreSalesCreate(StoreSalesBase):
+    pass
+
+
+class StoreSales(StoreSalesBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class StoreSalesQuery(BaseModel):
+    store_id: Optional[int] = None
+    region: Optional[str] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+
+
+class RegionalRankingStoreDetail(BaseModel):
+    store_id: int
+    store_name: str
+    loss_amount: float
+    sales_amount: Optional[float] = None
+    loss_rate: Optional[float] = None
+    has_sales_data: bool
+
+
+class RegionalRanking(BaseModel):
+    region: str
+    store_count: int
+    total_loss_amount: float
+    total_sales_amount: Optional[float] = None
+    avg_loss_rate: Optional[float] = None
+    has_sales_data: bool
+    best_store: Optional[RegionalRankingStoreDetail] = None
+    worst_store: Optional[RegionalRankingStoreDetail] = None
+    ranking: int
+    prev_ranking: Optional[int] = None
+    ranking_change: Optional[int] = None
 
 
 class UserLogin(BaseModel):
@@ -417,3 +473,12 @@ class User(UserBase):
 
     class Config:
         from_attributes = True
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+
+class TokenData(BaseModel):
+    username: Optional[str] = None

@@ -5,7 +5,7 @@ from datetime import date
 
 from app.database import get_db
 from app.schemas import schemas
-from app.services import report_service
+from app.services import report_service, loss_service, crud
 from app import models
 
 router = APIRouter(prefix="/reports", tags=["报表管理"])
@@ -36,6 +36,30 @@ def generate_all_weekly_reports(
     db: Session = Depends(get_db)
 ):
     return report_service.generate_all_weekly_reports(db)
+
+
+@router.post("/sales", response_model=schemas.StoreSales, summary="录入门店销售额")
+def create_store_sales(
+    sales_in: schemas.StoreSalesCreate,
+    db: Session = Depends(get_db)
+):
+    try:
+        return loss_service.create_store_sales(db, sales_in)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/sales", response_model=List[schemas.StoreSales], summary="查询门店销售额")
+def get_store_sales(
+    store_id: Optional[int] = None,
+    region: Optional[str] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    skip: int = 0,
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db)
+):
+    return loss_service.get_store_sales_records(db, store_id, region, start_date, end_date, skip, limit)
 
 
 @router.get("/stores", response_model=List[schemas.Store], summary="查询门店列表")
@@ -118,6 +142,3 @@ def create_loss_reason(
     if existing:
         raise HTTPException(status_code=400, detail="原因编码已存在")
     return crud.loss_reason.create(db, obj_in=reason_in)
-
-
-from app.services import crud

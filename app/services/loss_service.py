@@ -9,6 +9,45 @@ from app.schemas import schemas
 from app.config import settings
 
 
+def get_store_sales_amount(
+    db: Session,
+    store_id: int,
+    start_date: date,
+    end_date: date
+) -> Optional[float]:
+    result = db.query(
+        func.sum(models.StoreSales.sales_amount)
+    ).filter(
+        models.StoreSales.store_id == store_id,
+        models.StoreSales.sales_date >= start_date,
+        models.StoreSales.sales_date <= end_date
+    ).scalar()
+    return result
+
+
+def get_region_sales_amount(
+    db: Session,
+    region: Optional[str],
+    start_date: date,
+    end_date: date
+) -> Optional[float]:
+    query = db.query(
+        func.sum(models.StoreSales.sales_amount)
+    ).join(
+        models.Store, models.StoreSales.store_id == models.Store.id
+    ).filter(
+        models.StoreSales.sales_date >= start_date,
+        models.StoreSales.sales_date <= end_date,
+        models.Store.is_active == True
+    )
+    
+    if region:
+        query = query.filter(models.Store.region == region)
+    
+    result = query.scalar()
+    return result
+
+
 def calculate_store_loss_rate(
     db: Session,
     store_id: int,
@@ -28,11 +67,21 @@ def calculate_store_loss_rate(
         models.LossReport.status == "approved"
     ).scalar() or 0.0
 
-    total_sales = 100000.0
+    total_sales = get_store_sales_amount(db, store_id, start_date, end_date)
+    has_sales_data = total_sales is not None and total_sales > 0
+    
+    note = None
+    loss_rate = None
+    is_exceeded = None
+    
+    if not has_sales_data:
+        note = f"该时间段({start_date}至{end_date})无销售额数据，损耗率暂无法计算"
+        if total_sales == 0:
+            note = f"该时间段销售额为0，损耗率无法计算"
+    else:
+        loss_rate = (total_loss / total_sales * 100)
 
-    loss_rate = (total_loss / total_sales * 100) if total_sales > 0 else 0.0
-
-    prev_start = start_date - timedelta(days=30)
+    prev_start = start_date - timedelta(days=(end_date - start_date).days + 1)
     prev_end = start_date - timedelta(days=1)
     prev_loss = db.query(
         func.sum(models.LossReport.amount)
@@ -42,24 +91,39 @@ def calculate_store_loss_rate(
         models.LossReport.report_time <= prev_end,
         models.LossReport.status == "approved"
     ).scalar() or 0.0
-    prev_loss_rate = (prev_loss / total_sales * 100) if total_sales > 0 else 0.0
-
-    trend = loss_rate - prev_loss_rate
+    
+    prev_sales = get_store_sales_amount(db, store_id, prev_start, prev_end)
+    prev_has_sales = prev_sales is not None and prev_sales > 0
+    
+    prev_loss_rate = None
+    trend = None
+    
+    if prev_has_sales:
+        prev_loss_rate = (prev_loss / prev_sales * 100)
+    
+    if loss_rate is not None and prev_loss_rate is not None:
+        trend = loss_rate - prev_loss_rate
+    
     threshold = get_threshold_value(db, "loss_rate_threshold", settings.DEFAULT_LOSS_RATE_THRESHOLD)
+    
+    if loss_rate is not None:
+        is_exceeded = loss_rate > threshold
 
     return schemas.StoreLossRate(
         store_id=store_id,
         store_name=store.name,
         region=store.region or "",
-        period="monthly",
+        period="custom",
         start_date=start_date,
         end_date=end_date,
         total_sales=total_sales,
         total_loss_amount=total_loss,
-        loss_rate=round(loss_rate, 2),
-        loss_rate_trend=round(trend, 2),
+        loss_rate=round(loss_rate, 2) if loss_rate is not None else None,
+        loss_rate_trend=round(trend, 2) if trend is not None else None,
         threshold=threshold,
-        is_exceeded=loss_rate > threshold
+        is_exceeded=is_exceeded,
+        has_sales_data=has_sales_data,
+        note=note
     )
 
 
@@ -173,7 +237,24 @@ def calculate_product_risk_score(
     report_count = len(reports)
     
     loss_amount = sum(r.amount for r in reports)
-    loss_rate = min(loss_amount / 10000 * 100, 100) if loss_amount > 0 else 0
+    
+    if store_id:
+        sales = get_store_sales_amount(
+            db, store_id,
+            (datetime.utcnow() - timedelta(days=days)).date(),
+            datetime.utcnow().date()
+        )
+    else:
+        sales = get_region_sales_amount(
+            db, None,
+            (datetime.utcnow() - timedelta(days=days)).date(),
+            datetime.utcnow().date()
+        )
+    
+    if sales and sales > 0:
+        loss_rate = min(loss_amount / sales * 100, 100) if loss_amount > 0 else 0
+    else:
+        loss_rate = min(loss_amount / 10000 * 100, 100) if loss_amount > 0 else 0
     
     reason_query = db.query(
         models.LossReason.name,
@@ -344,15 +425,29 @@ def get_trend_data(
         
         row = query.first()
         
-        total_sales = 100000.0
-        loss_rate = (row.amount / total_sales * 100) if row.amount and total_sales > 0 else 0.0
+        if store_id:
+            total_sales = get_store_sales_amount(db, store_id, current_start, current_end)
+        else:
+            total_sales = get_region_sales_amount(db, region, current_start, current_end)
+        
+        has_sales_data = total_sales is not None and total_sales > 0
+        
+        loss_rate = None
+        note = None
+        if has_sales_data:
+            loss_rate = (row.amount / total_sales * 100) if row.amount else 0.0
+        else:
+            note = f"{current_start}至{current_end}无销售额数据"
         
         results.append(schemas.TrendDataPoint(
             date=current_start,
             loss_amount=row.amount or 0.0,
             loss_quantity=row.quantity or 0.0,
-            loss_rate=round(loss_rate, 2),
-            report_count=row.count or 0
+            loss_rate=round(loss_rate, 2) if loss_rate is not None else None,
+            report_count=row.count or 0,
+            total_sales=total_sales,
+            has_sales_data=has_sales_data,
+            note=note
         ))
         
         current_start = current_end + timedelta(days=1)
@@ -363,68 +458,148 @@ def get_trend_data(
 def get_regional_ranking(
     db: Session,
     start_date: date,
-    end_date: date
+    end_date: date,
+    region_filter: Optional[str] = None
 ) -> List[schemas.RegionalRanking]:
-    query = db.query(
-        models.Store.region,
-        func.count(models.Store.id).label("store_count"),
-        func.sum(models.LossReport.amount).label("total_loss")
-    ).join(
-        models.LossReport, models.Store.id == models.LossReport.store_id, isouter=True
-    ).filter(
-        models.Store.is_active == True,
-        or_(
-            models.LossReport.report_time.is_(None),
-            and_(
-                models.LossReport.report_time >= start_date,
-                models.LossReport.report_time <= end_date,
-                models.LossReport.status == "approved"
-            )
-        )
-    ).group_by(models.Store.region).all()
-
+    prev_days = (end_date - start_date).days + 1
+    prev_start = start_date - timedelta(days=prev_days)
+    prev_end = start_date - timedelta(days=1)
+    
+    region_query = db.query(models.Store.region).distinct()
+    region_query = region_query.filter(models.Store.is_active == True)
+    if region_filter:
+        region_query = region_query.filter(models.Store.region == region_filter)
+    regions = [r[0] for r in region_query.all() if r[0]]
+    
+    if not regions and not region_filter:
+        regions = [None]
+    
     results = []
-    for row in query:
-        region = row.region or "未分配"
+    for region in regions:
+        region_name = region or "未分配"
+        
+        stores_query = db.query(models.Store).filter(
+            models.Store.is_active == True
+        )
+        if region:
+            stores_query = stores_query.filter(models.Store.region == region)
+        else:
+            stores_query = stores_query.filter(
+                or_(models.Store.region.is_(None), models.Store.region == "")
+            )
+        stores = stores_query.all()
+        
+        if not stores:
+            continue
+        
+        store_count = len(stores)
+        store_ids = [s.id for s in stores]
+        
+        total_loss = db.query(
+            func.sum(models.LossReport.amount)
+        ).filter(
+            models.LossReport.store_id.in_(store_ids),
+            models.LossReport.report_time >= start_date,
+            models.LossReport.report_time <= end_date,
+            models.LossReport.status == "approved"
+        ).scalar() or 0.0
+        
+        total_sales = db.query(
+            func.sum(models.StoreSales.sales_amount)
+        ).filter(
+            models.StoreSales.store_id.in_(store_ids),
+            models.StoreSales.sales_date >= start_date,
+            models.StoreSales.sales_date <= end_date
+        ).scalar()
+        
+        has_sales_data = total_sales is not None and total_sales > 0
+        
         store_loss_rates = []
-        best_store = ""
-        worst_store = ""
+        best_store_detail = None
+        worst_store_detail = None
         best_rate = float('inf')
         worst_rate = float('-inf')
         
-        stores = db.query(models.Store).filter(
-            models.Store.region == (row.region or ""),
-            models.Store.is_active == True
-        ).all()
-        
         for store in stores:
-            try:
-                lr = calculate_store_loss_rate(db, store.id, start_date, end_date)
+            lr = calculate_store_loss_rate(db, store.id, start_date, end_date)
+            if lr.loss_rate is not None:
                 store_loss_rates.append(lr.loss_rate)
                 if lr.loss_rate < best_rate:
                     best_rate = lr.loss_rate
-                    best_store = store.name
+                    best_store_detail = schemas.RegionalRankingStoreDetail(
+                        store_id=store.id,
+                        store_name=store.name,
+                        loss_amount=lr.total_loss_amount,
+                        sales_amount=lr.total_sales,
+                        loss_rate=lr.loss_rate,
+                        has_sales_data=lr.has_sales_data
+                    )
                 if lr.loss_rate > worst_rate:
                     worst_rate = lr.loss_rate
-                    worst_store = store.name
-            except Exception:
-                continue
+                    worst_store_detail = schemas.RegionalRankingStoreDetail(
+                        store_id=store.id,
+                        store_name=store.name,
+                        loss_amount=lr.total_loss_amount,
+                        sales_amount=lr.total_sales,
+                        loss_rate=lr.loss_rate,
+                        has_sales_data=lr.has_sales_data
+                    )
         
-        avg_rate = sum(store_loss_rates) / len(store_loss_rates) if store_loss_rates else 0.0
+        avg_loss_rate = None
+        if store_loss_rates:
+            avg_loss_rate = sum(store_loss_rates) / len(store_loss_rates)
         
         results.append(schemas.RegionalRanking(
-            region=region,
-            store_count=row.store_count,
-            total_loss_amount=row.total_loss or 0.0,
-            avg_loss_rate=round(avg_rate, 2),
-            best_store=best_store,
-            worst_store=worst_store,
+            region=region_name,
+            store_count=store_count,
+            total_loss_amount=total_loss,
+            total_sales_amount=total_sales,
+            avg_loss_rate=round(avg_loss_rate, 2) if avg_loss_rate is not None else None,
+            has_sales_data=has_sales_data,
+            best_store=best_store_detail,
+            worst_store=worst_store_detail,
             ranking=0
         ))
     
-    results.sort(key=lambda x: x.avg_loss_rate)
-    for i, r in enumerate(results):
-        r.ranking = i + 1
+    if results:
+        results.sort(key=lambda x: (x.avg_loss_rate is None, x.avg_loss_rate if x.avg_loss_rate is not None else float('inf')))
+        for i, r in enumerate(results):
+            r.ranking = i + 1
+    
+    if len(results) > 1:
+        prev_results = []
+        for region in regions:
+            region_name = region or "未分配"
+            
+            stores_query = db.query(models.Store).filter(
+                models.Store.is_active == True
+            )
+            if region:
+                stores_query = stores_query.filter(models.Store.region == region)
+            else:
+                stores_query = stores_query.filter(
+                    or_(models.Store.region.is_(None), models.Store.region == "")
+                )
+            stores = stores_query.all()
+            store_ids = [s.id for s in stores] if stores else []
+            
+            prev_store_loss_rates = []
+            for store in stores:
+                prev_lr = calculate_store_loss_rate(db, store.id, prev_start, prev_end)
+                if prev_lr.loss_rate is not None:
+                    prev_store_loss_rates.append(prev_lr.loss_rate)
+            
+            prev_avg = sum(prev_store_loss_rates) / len(prev_store_loss_rates) if prev_store_loss_rates else None
+            prev_results.append((region_name, prev_avg))
+        
+        prev_results.sort(key=lambda x: (x[1] is None, x[1] if x[1] is not None else float('inf')))
+        prev_rank_map = {name: i + 1 for i, (name, _) in enumerate(prev_results)}
+        
+        for r in results:
+            prev_rank = prev_rank_map.get(r.region)
+            r.prev_ranking = prev_rank
+            if prev_rank is not None:
+                r.ranking_change = prev_rank - r.ranking
     
     return results
 
@@ -474,11 +649,18 @@ def get_stores_comparison(
             models.LossReport.status == "approved"
         ).scalar() or 0
         
-        total_sales = 100000.0
+        total_sales = get_store_sales_amount(db, store.id, start_date, end_date)
+        has_sales_data = total_sales is not None and total_sales > 0
+        
         current_amount = current_data.amount or 0.0
         prev_amount = prev_data.amount or 0.0
         
-        loss_rate = (current_amount / total_sales * 100) if total_sales > 0 else 0.0
+        loss_rate = None
+        note = None
+        if has_sales_data:
+            loss_rate = (current_amount / total_sales * 100)
+        else:
+            note = f"该时间段无销售额数据"
         
         if prev_amount > 0:
             change_pct = (current_amount - prev_amount) / prev_amount * 100
@@ -497,14 +679,17 @@ def get_stores_comparison(
             region=store.region or "",
             loss_amount=current_amount,
             loss_quantity=current_data.quantity or 0.0,
-            loss_rate=round(loss_rate, 2),
+            total_sales=total_sales,
+            loss_rate=round(loss_rate, 2) if loss_rate is not None else None,
             report_count=current_data.count or 0,
             high_freq_count=high_freq_count,
             ranking=0,
-            trend=trend
+            trend=trend,
+            has_sales_data=has_sales_data,
+            note=note
         ))
     
-    results.sort(key=lambda x: x.loss_rate, reverse=True)
+    results.sort(key=lambda x: (x.loss_rate is None, -(x.loss_rate if x.loss_rate is not None else -1)))
     for i, r in enumerate(results):
         r.ranking = i + 1
     
@@ -611,3 +796,72 @@ def get_expiry_reminders(db, store_id=None, region=None, days=7):
 def get_shortage_abnormalities(db, store_id=None, days=30):
     from app.services.warning_service import get_shortage_abnormalities as gsa
     return gsa(db, store_id, days)
+
+
+def create_store_sales(
+    db: Session,
+    sales_in: schemas.StoreSalesCreate
+) -> models.StoreSales:
+    store = db.query(models.Store).filter(models.Store.id == sales_in.store_id).first()
+    if not store:
+        raise ValueError(f"门店ID {sales_in.store_id} 不存在")
+
+    if sales_in.sales_amount < 0:
+        raise ValueError("销售额不能为负数")
+
+    existing = db.query(models.StoreSales).filter(
+        models.StoreSales.store_id == sales_in.store_id,
+        models.StoreSales.sales_date == sales_in.sales_date
+    ).first()
+
+    if existing:
+        existing.sales_amount = sales_in.sales_amount
+        existing.transaction_count = sales_in.transaction_count or 0
+        existing.customer_count = sales_in.customer_count or 0
+        existing.remark = sales_in.remark
+        existing.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(existing)
+        return existing
+
+    sales = models.StoreSales(
+        store_id=sales_in.store_id,
+        sales_date=sales_in.sales_date,
+        sales_amount=sales_in.sales_amount,
+        transaction_count=sales_in.transaction_count or 0,
+        customer_count=sales_in.customer_count or 0,
+        remark=sales_in.remark,
+        created_by=sales_in.created_by
+    )
+    db.add(sales)
+    db.commit()
+    db.refresh(sales)
+    return sales
+
+
+def get_store_sales_records(
+    db: Session,
+    store_id: Optional[int] = None,
+    region: Optional[str] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    skip: int = 0,
+    limit: int = 100
+) -> List[models.StoreSales]:
+    query = db.query(models.StoreSales).join(
+        models.Store, models.StoreSales.store_id == models.Store.id
+    )
+    
+    if store_id:
+        query = query.filter(models.StoreSales.store_id == store_id)
+    if region:
+        query = query.filter(models.Store.region == region)
+    if start_date:
+        query = query.filter(models.StoreSales.sales_date >= start_date)
+    if end_date:
+        query = query.filter(models.StoreSales.sales_date <= end_date)
+    
+    return query.order_by(
+        models.StoreSales.sales_date.desc(),
+        models.StoreSales.store_id
+    ).offset(skip).limit(limit).all()
